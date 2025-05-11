@@ -1,0 +1,15 @@
+Enhanced classification with NDVI, NDWI, Sand Index, Red Edge, and SWIR1/SWIR2.
+
+Label smoothing via mode() to assign a dominant class per patch.
+
+Band order handled per Sentinel-2 specs.
+
+Full Sentinel-2 band reading.
+
+Per-pixel classification using enhanced indices (NDVI, NDWI, Sand Index).
+
+Patch extraction using view_as_windows.
+
+Majority voting for patch label assignment.
+
+Saving patches, labels, and coordinates.
