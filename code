@@ -1,0 +1,761 @@
+
+
+import rasterio
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Path to your .tif file
+tif_path =r"C:\Users\jadon\Downloads\Sentinel2_Image_TheGanges_05042025.tif"
+
+# Open the image using rasterio
+with rasterio.open(tif_path) as src:
+    # Read Red (band 4), Green (band 3), Blue (band 2)
+    red = src.read(4)
+    green = src.read(3)
+    blue = src.read(2)
+
+# Stack bands and normalize to [0, 1] for visualization
+rgb = np.stack([red, green, blue], axis=-1).astype(np.float32)
+rgb_min = np.percentile(rgb, 2)
+rgb_max = np.percentile(rgb, 98)
+rgb = np.clip((rgb - rgb_min) / (rgb_max - rgb_min), 0, 1)
+
+# Plot the image
+plt.figure(figsize=(10, 10))
+plt.imshow(rgb)
+plt.title("RGB Composite (B4, B3, B2)")
+plt.axis('off')
+plt.show()
+
+import rasterio
+print("Bands in Sentinel-2 image:")
+with rasterio.open(r"C:\Users\jadon\Downloads\Sentinel2_Image_TheGanges_05042025.tif") as src:
+    print("Number of bands:", src.count)
+    for i in range(1, src.count + 1):
+        print(f"Band {i}: Shape = {src.read(i).shape}")
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+with rasterio.open(r"C:\Users\jadon\Downloads\Sentinel2_Image_TheGanges_05042025.tif") as src:
+    red = src.read(4)
+    green = src.read(3)
+    blue = src.read(2)
+
+rgb = np.stack([red, green, blue], axis=-1)
+rgb = np.clip((rgb - np.percentile(rgb, 2)) / (np.percentile(rgb, 98) - np.percentile(rgb, 2)), 0, 1)
+
+plt.imshow(rgb)
+plt.title("True Color (B4, B3, B2)")
+plt.axis("off")
+plt.show()
+
+import rasterio
+import numpy as np
+
+def load_selected_bands(tif_path, band_indices=[2, 3, 4, 8]):
+    """Loads specific bands (1-based) from the .tif file"""
+    with rasterio.open(tif_path) as src:
+        bands = [src.read(band) for band in band_indices]
+        image = np.stack(bands)  # shape: [C, H, W]
+    return image
+
+def extract_patches(image, patch_size=4):
+    C, H, W = image.shape
+    patches = []
+    coords = []
+    for i in range(0, H - patch_size, patch_size):
+        for j in range(0, W - patch_size, patch_size):
+            patch = image[:, i:i+patch_size, j:j+patch_size]
+            patches.append(patch)
+            coords.append((i, j))
+    return patches, coords
+
+# Load the image first
+image_path = r"C:\Users\jadon\Downloads\Sentinel2_Image_TheGanges_05042025.tif"
+image = load_selected_bands(image_path)
+
+# Now extract patches
+patches, coords = extract_patches(image, patch_size=4)
+
+
+print(patches)
+
+print(labels)
+import rasterio
+
+image_path = r"C:\Users\jadon\Downloads\Sentinel2_Image_TheGanges_05042025.tif"
+
+with rasterio.open(image_path) as src:
+    print("Width (pixels):", src.width)
+    print("Height (pixels):", src.height)
+    print("Number of bands:", src.count)
+    print("CRS (Coordinate Reference System):", src.crs)
+    print("Transform (Geo-reference):", src.transform)
+
+import matplotlib.pyplot as plt
+import rasterio
+import math
+
+image_path = r"C:\Users\jadon\Downloads\Sentinel2_Image_TheGanges_05042025.tif"
+
+# Set the number of pixels to display for each image (2000x2000)
+image_size = 2000  # Size of each image (2000x2000 pixels)
+
+with rasterio.open(image_path) as src:
+    num_bands = src.count  # Get the total number of bands in the image
+    rows = math.ceil(num_bands / 3)  # Calculate the number of rows needed for the bands
+    fig, axs = plt.subplots(rows, 3, figsize=(10, 5 * rows))  # Create subplots with 3 columns per row
+
+    for i in range(1, num_bands + 1):
+        band = src.read(i)  # Read the i-th band
+        band_cropped = band[:image_size, :image_size]  # Crop the image to 2000x2000 pixels
+        row, col = divmod(i - 1, 3)  # Calculate the row and column index for the subplot
+
+        ax = axs[row, col] if rows > 1 else axs[col]  # Choose the appropriate axis
+        ax.imshow(band_cropped, cmap='gray')  # Display cropped image
+        ax.set_title(f'Band {i}', fontsize=16)
+        ax.axis('off')  # Hide axes for better visualization
+
+    plt.tight_layout()
+    plt.show()
+
+
+
+
+import os
+import csv
+import numpy as np
+import rasterio
+from tqdm import tqdm
+
+# --- Constants ---
+
+NDVI_VEG_THRESHOLD = 0.3
+NDWI_WATER_THRESHOLD = 0.01
+
+def compute_ndvi(nir, red):
+    return (nir - red) / (nir + red + 1e-5)
+
+def compute_ndwi(green, nir):
+    return (green - nir) / (green + nir + 1e-5)
+
+def classify_patch(mean_ndvi, mean_ndwi):
+    if mean_ndwi > NDWI_WATER_THRESHOLD:
+        return 0  # Water
+    elif mean_ndvi > NDVI_VEG_THRESHOLD:
+        return 2  # Vegetation
+    elif mean_ndvi < 0.05 and mean_ndwi < 0.05:
+        return 1  # Sand bar
+    else:
+        return 3  # Bare/Built-up
+
+# --- Patch Feature Extraction ---
+def extract_patch_stats(image_path, output_csv_path, patch_size=4):    # change patch size
+    with rasterio.open(image_path) as src:
+        red = src.read(4).astype(np.float32)
+        green = src.read(3).astype(np.float32)
+        nir = src.read(8).astype(np.float32)
+
+        height, width = red.shape
+        out_h = height // patch_size
+        out_w = width // patch_size
+
+        rows = []
+
+        patch_id = 0
+        for i in tqdm(range(out_h)):
+            for j in range(out_w):
+                y, x = i * patch_size, j * patch_size
+                red_patch = red[y:y+patch_size, x:x+patch_size]
+                green_patch = green[y:y+patch_size, x:x+patch_size]
+                nir_patch = nir[y:y+patch_size, x:x+patch_size]
+
+                mean_red = red_patch.mean()
+                mean_green = green_patch.mean()
+                mean_nir = nir_patch.mean()
+                mean_ndvi = compute_ndvi(nir_patch, red_patch).mean()
+                mean_ndwi = compute_ndwi(green_patch, nir_patch).mean()
+
+                label = classify_patch(mean_ndvi, mean_ndwi)
+
+                rows.append([
+                    patch_id, mean_red, mean_green, mean_nir,
+                    mean_ndvi, mean_ndwi, label
+                ])
+                patch_id += 1
+
+    # --- Write CSV ---
+    header = [
+        'patch_id', 'mean_red', 'mean_green', 'mean_nir',
+        'mean_ndvi', 'mean_ndwi', 'label'
+    ]
+    with open(output_csv_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(header)
+        writer.writerows(rows)
+    
+    print(f"Saved patch-level stats to: {output_csv_path}")
+
+# --- Usage ---
+image_path = r"C:\Users\jadon\Downloads\Sentinel2_Image_TheGanges_05042025.tif"
+csv_output_path = r"C:\Users\jadon\Downloads\dataset\patch_statistics.csv"
+extract_patch_stats(image_path, csv_output_path)
+
+df=pd.read_csv(r"C:\Users\jadon\Downloads\dataset\patch_statistics.csv")
+df.tail(10)
+
+import numpy as np
+import rasterio
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from tqdm import tqdm
+
+# Thresholds
+NDVI_VEG_THRESHOLD = 0.3
+NDWI_WATER_THRESHOLD = 0.01
+
+def compute_ndvi(nir, red):
+    return (nir - red) / (nir + red + 1e-5)
+
+def compute_ndwi(green, nir):
+    return (green - nir) / (green + nir + 1e-5)
+
+def classify_patch(mean_ndvi, mean_ndwi):
+    if mean_ndwi > NDWI_WATER_THRESHOLD:
+        return 0  # Water
+    elif mean_ndvi > NDVI_VEG_THRESHOLD:
+        return 2  # Vegetation
+    elif mean_ndvi < 0.05 and mean_ndwi < 0.01:
+        return 1  # Sand bar
+    else:
+        return 3  # Bare/Built-up
+
+def classify_image(image_path, patch_size=4):
+    with rasterio.open(image_path) as src:
+        red = src.read(4).astype(np.float32)
+        green = src.read(3).astype(np.float32)
+        nir = src.read(8).astype(np.float32)
+
+        height, width = red.shape
+        out_h = height // patch_size
+        out_w = width // patch_size
+
+        classification_map = np.zeros((out_h, out_w), dtype=np.uint8)
+        ndvi_map = np.zeros((out_h, out_w), dtype=np.float32)
+        ndwi_map = np.zeros((out_h, out_w), dtype=np.float32)
+
+        for i in tqdm(range(out_h)):
+            for j in range(out_w):
+                y, x = i * patch_size, j * patch_size
+                red_patch = red[y:y+patch_size, x:x+patch_size]
+                green_patch = green[y:y+patch_size, x:x+patch_size]
+                nir_patch = nir[y:y+patch_size, x:x+patch_size]
+
+                ndvi = compute_ndvi(nir_patch, red_patch).mean()
+                ndwi = compute_ndwi(green_patch, nir_patch).mean()
+
+                label = classify_patch(ndvi, ndwi)
+                classification_map[i, j] = label
+                ndvi_map[i, j] = ndvi
+                ndwi_map[i, j] = ndwi
+
+        return classification_map, ndvi_map, ndwi_map
+
+# Run
+image_path = r"C:\Users\jadon\Downloads\Sentinel2_Image_TheGanges_05042025.tif"
+classified, ndvi_map, ndwi_map = classify_image(image_path)
+
+# Discrete class colormap
+class_names = ['Water (0)', 'Sand Bar (1)', 'Vegetation (2)', 'Built-up (3)']
+class_colors = ['blue', 'tan', 'green', 'gray']
+cmap = mcolors.ListedColormap(class_colors)
+bounds = [0, 1, 2, 3, 4]
+norm = mcolors.BoundaryNorm(bounds, cmap.N)
+
+# Plot all three maps
+plt.figure(figsize=(18, 6))
+
+plt.subplot(1, 3, 1)
+plt.imshow(ndvi_map, cmap='YlGn')
+plt.title("NDVI (avg per patch)")
+plt.colorbar()
+
+plt.subplot(1, 3, 2)
+plt.imshow(ndwi_map, cmap='Blues')
+plt.title("NDWI (avg per patch)")
+plt.colorbar()
+
+plt.subplot(1, 3, 3)
+im = plt.imshow(classified, cmap=cmap, norm=norm)
+cbar = plt.colorbar(im, ticks=[0.5, 1.5, 2.5, 3.5])
+cbar.ax.set_yticklabels(class_names)
+plt.title("Classified Map")
+plt.axis('off')
+
+plt.tight_layout()
+plt.show()
+
+import rasterio
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Path to your .tif file
+tif_path =r"C:\Users\jadon\Downloads\Sentinel2_Image_TheGanges_05042025.tif"
+
+# Open the image using rasterio
+with rasterio.open(tif_path) as src:
+    # Read Red (band 4), Green (band 3), Blue (band 2)
+    red = src.read(4)
+    green = src.read(3)
+    blue = src.read(2)
+
+# Stack bands and normalize to [0, 1] for visualization
+rgb = np.stack([red, green, blue], axis=-1).astype(np.float32)
+rgb_min = np.percentile(rgb, 2)
+rgb_max = np.percentile(rgb, 98)
+rgb = np.clip((rgb - rgb_min) / (rgb_max - rgb_min), 0, 1)
+
+# Plot the image
+plt.figure(figsize=(10, 10))
+plt.imshow(rgb)
+plt.title("RGB Composite (B4, B3, B2)")
+plt.axis('off')
+plt.show()
+
+import numpy as np
+import rasterio
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from tqdm import tqdm
+
+# ---------- Thresholds ----------
+NDVI_VEG_THRESHOLD = 0.23
+NDWI_WATER_THRESHOLD = 0.01
+NDVI_BARE_THRESHOLD = 0.05
+NDWI_BARE_THRESHOLD = 0.01
+SAND_INDEX_THRESHOLD = 0.2  # Tuning threshold for sand detection
+
+# ---------- Helper Functions ----------
+def compute_ndvi(nir, red):
+    return (nir - red) / (nir + red + 1e-5)
+
+def compute_ndwi(green, nir):
+    return (green - nir) / (green + nir + 1e-5)
+
+def compute_sand_index_v4(red, red_edge, swir1, swir2):
+    return (red - (swir1 + swir2 + red_edge) / 3) / (red + (swir1 + swir2 + red_edge) / 3 + 1e-5)
+
+def compute_ndbi(swir, nir):
+    return (swir - nir) / (swir + nir + 1e-5)
+
+def classify_patch_v4(mean_ndvi, mean_ndwi, mean_sand_index, mean_swir1, mean_swir2, mean_red_edge):
+    if mean_ndwi > NDWI_WATER_THRESHOLD:
+        return 0  # Water
+    elif mean_ndvi < 0.05 and mean_ndwi < 0.05 and mean_sand_index > SAND_INDEX_THRESHOLD:
+        return 1  # Sand Bar
+    elif mean_ndvi > NDVI_VEG_THRESHOLD and mean_red_edge > 1000:
+        return 2  # Vegetation (using red-edge to reinforce vegetation detection)
+    elif mean_ndvi < NDVI_BARE_THRESHOLD and mean_ndwi < NDWI_BARE_THRESHOLD:
+        if mean_swir1 > 800 or mean_swir2 > 1000:
+            return 3  # Built-up (SWIR reflectance typically higher in built-up areas)
+        return 4  # Barren/Other
+    elif mean_ndwi < NDWI_WATER_THRESHOLD and mean_ndvi <= 0.14:
+        return 3  # Built-up fallback
+    else:
+        return 4  # Fallback to Barren/Other
+
+# ---------- Classification Function ----------
+def classify_image_v4(image_path, patch_size):
+    with rasterio.open(image_path) as src:
+        red = src.read(4).astype(np.float32)       # Band 4 (Red)
+        green = src.read(3).astype(np.float32)     # Band 3 (Green)
+        nir = src.read(8).astype(np.float32)       # Band 8 (NIR)
+        swir1 = src.read(11).astype(np.float32)    # Band 11 (SWIR1)
+        swir2 = src.read(12).astype(np.float32)    # Band 12 (SWIR2)
+        red_edge = src.read(5).astype(np.float32)  # Band 5 (Red Edge)
+
+        height, width = red.shape
+        out_h = height // patch_size
+        out_w = width // patch_size
+
+        classification_map = np.zeros((out_h, out_w), dtype=np.uint8)
+        ndvi_map = np.zeros((out_h, out_w), dtype=np.float32)
+        ndwi_map = np.zeros((out_h, out_w), dtype=np.float32)
+        sand_map = np.zeros((out_h, out_w), dtype=np.float32)
+
+        for i in tqdm(range(out_h), desc="Classifying patches"):
+            for j in range(out_w):
+                y, x = i * patch_size, j * patch_size
+                red_patch = red[y:y+patch_size, x:x+patch_size]
+                green_patch = green[y:y+patch_size, x:x+patch_size]
+                nir_patch = nir[y:y+patch_size, x:x+patch_size]
+                swir1_patch = swir1[y:y+patch_size, x:x+patch_size]
+                swir2_patch = swir2[y:y+patch_size, x:x+patch_size]
+                red_edge_patch = red_edge[y:y+patch_size, x:x+patch_size]
+
+                # Compute the indices
+                ndvi = compute_ndvi(nir_patch, red_patch).mean()
+                ndwi = compute_ndwi(green_patch, nir_patch).mean()
+                sand_index = compute_sand_index_v4(red_patch, red_edge_patch, swir1_patch, swir2_patch).mean()
+                ndbi = compute_ndbi(swir1_patch, nir_patch).mean()
+
+                # Classification logic
+                label = classify_patch_v4(ndvi, ndwi, sand_index, swir1_patch.mean(), swir2_patch.mean(), red_edge_patch.mean())
+                
+                classification_map[i, j] = label
+                ndvi_map[i, j] = ndvi
+                ndwi_map[i, j] = ndwi
+                sand_map[i, j] = sand_index
+
+        return classification_map, ndvi_map, ndwi_map, sand_map, src.meta
+
+# ---------- Run Classification ----------
+image_path = r"C:\Users\jadon\Downloads\Sentinel2_Image_TheGanges_05042025.tif"
+patch_size = 1
+
+ # Adjust patch size to a larger number for more detailed classification
+classified, ndvi_map, ndwi_map, sand_map, metadata = classify_image_v4(image_path, patch_size=patch_size)
+
+# ---------- Load RGB Image ----------
+with rasterio.open(image_path) as src:
+    img = src.read([4, 3, 2]).astype(np.float32)  # Red, Green, Blue
+    img = np.moveaxis(img, 0, -1)
+    img = img / np.max(img)
+
+# ---------- Upscale Classified Map ----------
+rescaled_classified = np.repeat(np.repeat(classified, patch_size, axis=0), patch_size, axis=1)
+
+# ---------- Class Labels and Colormap ----------
+class_names = ['Water (0)', 'Sand Bar (1)', 'Vegetation (2)', 'Built-up (3)', 'Barren/Other (4)']
+class_colors = ['blue', 'gray', 'green', 'red', 'purple']
+cmap = mcolors.ListedColormap(class_colors)
+bounds = np.arange(6) - 0.5
+norm = mcolors.BoundaryNorm(bounds, cmap.N)
+
+# ---------- Plot ----------
+plt.figure(figsize=(10, 7))
+plt.subplot(1, 1, 1)
+im_class = plt.imshow(rescaled_classified, cmap=cmap, norm=norm)
+cbar = plt.colorbar(im_class, ticks=range(5))
+cbar.ax.set_yticklabels(class_names)
+plt.title("Classified Land Cover Map")
+plt.axis('off')
+plt.tight_layout()
+plt.show()
+
+
+
+
+import numpy as np
+import rasterio
+from skimage.util import view_as_windows
+from scipy.stats import mode
+from tqdm import tqdm
+
+# ---------- Configuration ----------
+image_path = r"C:\Users\jadon\Downloads\Sentinel2_Image_TheGanges_05042025.tif"
+patch_save_path = r"C:\Users\jadon\Downloads\dataset\patch.npy"
+patch_label_path = r"C:\Users\jadon\Downloads\dataset\labels.npy"
+coords_save_path = r"C:\Users\jadon\Downloads\dataset\coords.npy"
+patch_size = 40
+
+# ---------- Thresholds ----------
+NDVI_VEG_THRESHOLD = 0.23
+NDWI_WATER_THRESHOLD = 0.01
+NDVI_BARE_THRESHOLD = 0.05
+NDWI_BARE_THRESHOLD = 0.01
+SAND_INDEX_THRESHOLD = 0.2
+
+# ---------- Helper Functions ----------
+def compute_ndvi(nir, red):
+    return (nir - red) / (nir + red + 1e-5)
+
+def compute_ndwi(green, nir):
+    return (green - nir) / (green + nir + 1e-5)
+
+def compute_sand_index_v4(red, red_edge, swir1, swir2):
+    return (red - (swir1 + swir2 + red_edge) / 3) / (red + (swir1 + swir2 + red_edge) / 3 + 1e-5)
+
+def classify_pixel_v4(red, green, nir, red_edge, swir1, swir2):
+    ndvi = compute_ndvi(nir, red)
+    ndwi = compute_ndwi(green, nir)
+    sand_index = compute_sand_index_v4(red, red_edge, swir1, swir2)
+    
+    if ndwi > NDWI_WATER_THRESHOLD:
+        return 0  # Water
+    elif ndvi < 0.05 and ndwi < 0.05 and sand_index > SAND_INDEX_THRESHOLD:
+        return 1  # Sand Bar
+    elif ndvi > NDVI_VEG_THRESHOLD and red_edge > 1000:
+        return 2  # Vegetation
+    elif ndvi < NDVI_BARE_THRESHOLD and ndwi < NDWI_BARE_THRESHOLD:
+        if swir1 > 800 or swir2 > 1000:
+            return 3  # Built-up
+        return 4  # Barren/Other
+    elif ndwi < NDWI_WATER_THRESHOLD and ndvi <= 0.14:
+        return 3  # Built-up fallback
+    else:
+        return 4  # Fallback to Barren/Other
+
+# ---------- Load Image ----------
+with rasterio.open(image_path) as src:
+    full_image = src.read().astype(np.float32)  # [C, H, W]
+    red = full_image[3]       # Band 4: Red
+    green = full_image[2]     # Band 3: Green
+    nir = full_image[7]       # Band 8: NIR
+    swir1 = full_image[10]    # Band 11: SWIR1
+    swir2 = full_image[11]    # Band 12: SWIR2
+    red_edge = full_image[4]  # Band 5: Red Edge
+
+C, H, W = full_image.shape
+
+# ---------- Generate Per-pixel Label Map ----------
+label_map = np.zeros((H, W), dtype=np.uint8)
+for i in tqdm(range(H), desc="Classifying pixels"):
+    for j in range(W):
+        label_map[i, j] = classify_pixel_v4(
+            red[i, j], green[i, j], nir[i, j],
+            red_edge[i, j], swir1[i, j], swir2[i, j]
+        )
+
+# ---------- Normalize Image Bands ----------
+mean = full_image.mean(axis=(1, 2), keepdims=True)
+std = full_image.std(axis=(1, 2), keepdims=True)
+normalized_image = (full_image - mean) / (std + 1e-5)  # [C, H, W]
+
+# ---------- Extract Patches ----------
+image_hw_c = normalized_image.transpose(1, 2, 0)  # [H, W, C]
+image_patches = view_as_windows(image_hw_c, (patch_size, patch_size, C), step=patch_size)
+label_patches = view_as_windows(label_map, (patch_size, patch_size), step=patch_size)
+
+# ---------- Flatten and Majority Voting ----------
+num_patches = image_patches.shape[0] * image_patches.shape[1]
+image_patches = image_patches.reshape(num_patches, patch_size, patch_size, C)
+label_patches = label_patches.reshape(num_patches, patch_size, patch_size)
+
+patch_labels = mode(label_patches.reshape(num_patches, -1), axis=1)[0].flatten()
+patches = image_patches.transpose(0, 3, 1, 2)  # [N, C, H, W]
+
+# ---------- Patch Coordinates ----------
+coords = []
+for i in range(0, H - patch_size + 1, patch_size):
+    for j in range(0, W - patch_size + 1, patch_size):
+        coords.append((i, j))
+coords = np.array(coords)
+
+# ---------- Save ----------
+np.save(patch_save_path, patches.astype(np.float32))
+np.save(patch_label_path, patch_labels.astype(np.int64))
+np.save(coords_save_path, coords)
+
+print(f"✅ Saved {patches.shape[0]} patches of shape {patches.shape[1:]}")
+
+import torch
+from torch.utils.data import Dataset, DataLoader, random_split
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import numpy as np
+
+# ---- Custom Dataset for Pre-saved Patches ----
+class PatchDataset(Dataset):
+    def __init__(self, patch_data_path, patch_label_path):
+        self.images = np.load(patch_data_path)        # [N, 12, 32, 32]
+        self.labels = np.load(patch_label_path)       # [N] (Labels between 0-5)
+        
+        # Convert to torch tensors
+        self.images = torch.tensor(self.images, dtype=torch.float32)
+        self.labels = torch.tensor(self.labels, dtype=torch.long)
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        return self.images[idx], self.labels[idx]
+
+# ---- CNN Patch Classifier ----
+class PatchCNNClassifier(nn.Module):
+    def __init__(self, in_channels=12, num_classes=5):  # Updated to 6 classes
+        super(PatchCNNClassifier, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))  # Global average pooling
+        self.fc = nn.Linear(64, num_classes)
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))  # [B, 32, H, W]
+        x = F.relu(self.conv2(x))  # [B, 64, H, W]
+        x = self.pool(x)           # [B, 64, 1, 1]
+        x = x.view(x.size(0), -1)  # [B, 64]
+        return self.fc(x)
+
+# ---- Paths to dataset ----
+patch_data_path = r"C:\Users\jadon\Downloads\dataset\patch.npy"
+patch_label_path = r"C:\Users\jadon\Downloads\dataset\labels.npy"
+
+# ---- Load Dataset ----
+dataset = PatchDataset(patch_data_path, patch_label_path)
+train_size = int(0.8 * len(dataset))
+test_size = len(dataset) - train_size
+train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+
+train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=8)
+
+# ---- Setup Model, Loss, Optimizer ----
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = PatchCNNClassifier().to(device)
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
+
+# ---- Training ----
+num_epochs = 40
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        inputs, labels = inputs.to(device), labels.to(device)
+        
+        optimizer.zero_grad()  # Clear previous gradients
+        outputs = model(inputs)  # Forward pass
+        
+        loss = criterion(outputs, labels)  # Compute loss
+        loss.backward()  # Backward pass
+        optimizer.step()  # Update model parameters
+        
+        running_loss += loss.item()
+
+    # Display loss for each epoch
+    print(f"Epoch {epoch+1}/{num_epochs} - Loss: {running_loss / len(train_loader):.4f}")
+
+# ---- Evaluation ----
+model.eval()  # Set the model to evaluation mode
+correct = 0
+total = 0
+with torch.no_grad():  # No gradient computation during evaluation
+    for inputs, labels in test_loader:
+        inputs, labels = inputs.to(device), labels.to(device)
+        outputs = model(inputs)
+        _, predicted = torch.max(outputs, 1)  # Get the predicted class (max probability)
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
+
+accuracy = 100 * correct / total
+print(f"Accuracy on test set: {accuracy:.2f}%")
+
+# ---- Save Model ----
+torch.save(model.state_dict(), "patch_cnn_classifier.pth")
+print("✅ Model saved as patch_cnn_classifier.pth")
+
+import torch
+import numpy as np
+import rasterio
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import torch.nn as nn
+import torch.nn.functional as F
+
+# ---- Updated Model Definition (5 Classes) ----
+class PatchCNNClassifier(nn.Module):
+    def __init__(self, in_channels=12, num_classes=5):
+        super(PatchCNNClassifier, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
+        self.pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(64, num_classes)
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = self.pool(x)
+        x = x.view(x.size(0), -1)
+        return self.fc(x)
+
+# ---- Load Trained Model ----
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = PatchCNNClassifier().to(device)
+model.load_state_dict(torch.load("patch_cnn_classifier.pth", map_location=device))
+model.eval()
+print("✅ Model loaded successfully.")
+
+# ---- Inference on New Image ----
+def classify_new_image(image_path, patch_size=32):
+    with rasterio.open(image_path) as src:
+        all_bands = [src.read(i + 1).astype(np.float32) for i in range(12)]
+        image = np.stack(all_bands, axis=0)  # [C, H, W]
+
+        # Normalize
+        mean = image.mean(axis=(1, 2), keepdims=True)
+        std = image.std(axis=(1, 2), keepdims=True) + 1e-5
+        image = (image - mean) / std
+
+        C, H, W = image.shape
+        out_h = H // patch_size
+        out_w = W // patch_size
+        classified_map = np.zeros((out_h, out_w), dtype=np.uint8)
+
+        for i in tqdm(range(out_h), desc="Classifying"):
+            for j in range(out_w):
+                y, x = i * patch_size, j * patch_size
+                patch = image[:, y:y+patch_size, x:x+patch_size]
+
+                if patch.shape[1:] != (patch_size, patch_size):
+                    continue  # Skip incomplete patches
+
+                patch_tensor = torch.tensor(patch).unsqueeze(0).to(device)
+
+                with torch.no_grad():
+                    output = model(patch_tensor)
+                    pred = torch.argmax(output, dim=1).item()
+
+                classified_map[i, j] = pred
+
+        return classified_map
+
+# ---- Visualization (for 5 Classes) ----
+def visualize_classification(classified_map):
+    class_names = [
+        'Water (0)',
+        'Sand Bar (1)',
+        'Vegetation (2)',
+        'Built-up (3)',
+        'Bareland/Other (4)',
+    ]
+    class_colors = ['blue', 'tan', 'green', 'red', 'purple']
+    cmap = mcolors.ListedColormap(class_colors)
+    bounds = np.arange(6) - 0.5  # [–0.5, 0.5, ..., 4.5]
+    norm = mcolors.BoundaryNorm(bounds, cmap.N)
+
+    plt.figure(figsize=(10, 8))
+    im = plt.imshow(classified_map, cmap=cmap, norm=norm)
+    cbar = plt.colorbar(im, ticks=np.arange(5))
+    cbar.ax.set_yticklabels(class_names)
+    plt.title("CNN Classification Output (32×32 Patches, 12 Bands)")
+    plt.axis('off')
+    plt.tight_layout()
+    plt.show()
+
+# ---- Run on a New Image ----
+new_image_path = r"C:\Users\jadon\Downloads\Sentinel2_Image_TheGanges_05042025.tif"
+classified_map = classify_new_image(new_image_path, patch_size=2)
+visualize_classification(classified_map)
+
+%pwd
+
+import cv2
+
+
+
+
+def draw_contours_on_image(base_image, label_map, class_colors):
+    output_image = base_image.copy()
+    for class_id, color in enumerate(class_colors):
+        mask = (label_map == class_id).astype(np.uint8)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(output_image, contours, -1, color, 1)  # color as BGR tuple
+    return output_image
+
+
+
+
